@@ -1,0 +1,54 @@
+version: '3.0'
+services:
+    php-fpm:
+        image: php-fpm:8.0-fpm
+        container_name: php-fpm
+        user: "${UID}:${GID}"
+        restart: always
+        working_dir: /var/web/www
+        environment:
+            IS_PRIMARY: "TRUE"
+            REPLICA_URL: "http://replica.tail1234a.ts.net/purge.php"
+        volumes:
+            - ./www/:/var/web/www/
+        networks:
+            - wp-network
+
+    nginx:
+        image: nginx:1.23.3
+        container_name: nginx
+        restart: always
+        ports:
+            - 80:80
+        volumes:
+            - ./www/:/var/web/www/
+            - ./nginx/conf.d/:/etc/nginx/conf.d/
+            - ./nginx/log/:/var/log/nginx/
+        networks:
+            - wp-network
+
+    mariadb:
+        container_name: mariadb-primary
+        volumes:
+            - './maria-primary/primary.cnf:/etc/mysql/conf.d/primary.cnf'
+            - './maria-primary/primary.sql:/docker-entrypoint-initdb.d/primary.sql'
+            - './maria-primary/data:/var/lib/mysql'
+        environment:
+            - MARIADB_ROOT_PASSWORD=secret
+        image: 'mariadb:10.10.2'
+        ports:
+            - 3306:3306
+        networks:
+            - wp-network
+    
+    tunnel:
+        image: cloudflare/cloudflared:2023.2.1
+        container_name: tunnel
+        restart: always
+        command: tunnel run --token=(token)
+        networks:
+            - wp-network
+
+networks:
+  wp-network:
+    driver: bridge

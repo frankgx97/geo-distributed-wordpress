@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: default
+data:
+  config: |+
+    server {
+        listen 80;
+        listen [::]:80;
+        root /var/web/www;
+        index index.php;
+
+        server_name example.com;
+
+        #W3TC
+        include /var/web/www/nginx.conf;
+        location = /nginx.conf {
+            deny all;
+        }
+        #END W3TC
+
+        location / {
+            try_files $uri $uri/ /index.php?q=$uri&$args;
+        }
+
+        location ~ \.php$ {
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
+            fastcgi_pass localhost:9000;
+            fastcgi_index index.php;
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            try_files $uri =404;
+            proxy_set_header remote-user-ip $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header Host            $host;
+            fastcgi_param  HTTP_HOST        $host;
+        }
+
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maxscale-config
+  namespace: default
+data:
+  config: |+
+    [primary]
+    address=primary.tail1234a.ts.net
+    monitorpw=secret
+    monitoruser=root
+    type=server
+
+    [replica]
+    address=127.0.0.1
+    monitorpw=secret
+    monitoruser=root
+    type=server
+
+    [monitor]
+    type=monitor
+    module=mariadbmon
+    user=root
+    password=secret
+    servers=replica, primary
+
+    [rw]
+    password=secret
+    router=readwritesplit
+    type=service
+    user=maxscale
+    targets=replica,primary
+
+    [listen]
+    authenticator=MariaDBAuth
+    port=4008
+    service=rw
+    type=listener
+
+    [maxscale]
+    threads=auto
+    admin_host=0.0.0.0
+    admin_secure_gui=false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-config
+  namespace: default
+data:
+  initsql: |+
+    CREATE USER 'readuser'@'%' IDENTIFIED BY 'secret';
+    GRANT SELECT ON *.* TO 'readuser'@'%';
+    FLUSH PRIVILEGES;
+
+    CREATE USER 'maxscale'@'%' IDENTIFIED BY 'secret';
+    GRANT SELECT ON *.* TO 'maxscale'@'%';
+    FLUSH PRIVILEGES;
+
+    CREATE USER 'maxscaleuser'@'%' IDENTIFIED BY 'secret';
+    GRANT SELECT ON *.* TO 'maxscaleuser'@'%';
+    FLUSH PRIVILEGES;
+
+    CHANGE MASTER TO
+      MASTER_HOST='primary.tail1234a.ts.net',
+      MASTER_USER='repluser',
+      MASTER_PASSWORD='replsecret',
+      MASTER_PORT=3306,
+      MASTER_CONNECT_RETRY=10,
+      MASTER_USE_GTID=slave_pos;
+      --MASTER_LOG_FILE='mariadb-bin-bin.000001',
+      --MASTER_LOG_POS=334;
+  cnf: |+
+    [mariadb]
+    server_id=3001                  # used to uniquely identify the server
+    log-basename=mariadb-bin         # used to be independent of hostname changes 
+                                    # (otherwise name is <datadir>/mysql-bin)
+    replicate_do_db=wp      # replicate only this DB
+    #binlog-format=MIXED            #default 
+    read_only=true
+    

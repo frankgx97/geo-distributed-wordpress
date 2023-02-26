@@ -1,0 +1,2 @@
+# A Budget Friendly Geographically Distributed WordPress Deployment
+[A Proof of Concept for Geographically Distributed WordPress Deployment - Frank's Weblog](https://nyan.im/p/geographically-distributed-wordpress-poc)

@@ -1,0 +1,62 @@
+version: '3.0'
+services:
+    php-fpm:
+        image: php-fpm:8.0-fpm
+        container_name: php-fpm
+        user: "${UID}:${GID}"
+        restart: always
+        working_dir: /var/web/www
+        volumes:
+            - ./www/:/var/web/www/
+        networks:
+            - wp-network
+
+    nginx:
+        image: nginx:1.23.3
+        container_name: nginx
+        restart: always
+        ports:
+            - 80:80
+        volumes:
+            - ./www/:/var/web/www/
+            - ./nginx/conf.d/:/etc/nginx/conf.d/
+            - ./nginx/log/:/var/log/nginx/
+        networks:
+            - wp-network
+
+    mariadb:
+        container_name: mariadb-replica
+        volumes:
+            - './maria-replica/replica.cnf:/etc/mysql/conf.d/replica.cnf'
+            - './maria-replica/replica.sql:/docker-entrypoint-initdb.d/replica.sql'
+            - './maria-replica/data:/var/lib/mysql'
+        environment:
+            - MARIADB_ROOT_PASSWORD=secret
+        image: 'mariadb:10.10.2'
+        ports:
+            - 3306:3306
+        networks:
+            - wp-network
+
+    tunnel:
+        image: cloudflare/cloudflared:2023.2.1
+        container_name: tunnel
+        restart: always
+        command: tunnel run --token=(token)
+        networks:
+            - wp-network
+    
+    maxscale:
+        image: mariadb/maxscale:6.4
+        container_name: maxscale
+        restart: always
+        ports:
+            - 8989:8989
+        volumes:
+            - ./maxscale/maxscale.cnf:/etc/maxscale.cnf
+        networks:
+            - wp-network
+
+networks:
+  wp-network:
+    driver: bridge

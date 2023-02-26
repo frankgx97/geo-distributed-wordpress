@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f replica.yml
+    kompose.version: 1.26.1 (HEAD)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: blog-replica
+  name: blog-replica
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: blog-replica
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f replica.yml
+        kompose.version: 1.26.1 (HEAD)
+      creationTimestamp: null
+      labels:
+        io.kompose.service: blog-replica
+    spec:
+      hostAliases:
+        - ip: "100.x.x.x"
+          hostnames:
+          - "primary.tail1234a.ts.net"
+      imagePullSecrets: 
+        - name: gitlab-registry-credentials
+      serviceAccountName: "tailscale"
+      containers:
+        - env:
+            - name: MARIADB_ROOT_PASSWORD
+              value: secret
+          image: mariadb:10.10.2
+          name: mariadb-replica
+          ports:
+            - containerPort: 3306
+          resources: {}
+          volumeMounts:
+            - mountPath: /etc/mysql/conf.d/replica.cnf
+              name: mariadb-config
+              subPath: cnf
+            - mountPath: /docker-entrypoint-initdb.d/replica.sql
+              name: mariadb-config
+              subPath: initsql
+            - mountPath: /var/lib/mysql
+              name: pvc
+              subPath: mariadb_data
+        - name: ts-sidecar
+          imagePullPolicy: Always
+          image: "tailscale/tailscale:stable"
+          env:
+            # Store the state in a k8s secret
+          - name: TS_KUBE_SECRET
+            value: "tailscale-auth"
+          - name: TS_USERSPACE
+            value: "false"
+          - name: TS_AUTHKEY
+            valueFrom:
+              secretKeyRef:
+                name: tailscale-auth
+                key: TS_AUTHKEY
+                optional: true
+          securityContext:
+            capabilities:
+              add:
+              - NET_ADMIN
+        - args:
+            - tunnel
+            - run
+            - --token=(token)
+          image: cloudflare/cloudflared:2023.2.1
+          name: tunnel
+        - image: php-fpm:8.0-fpm
+          name: php-fpm
+          env:
+            - name: REMOTE_URLS
+              value: http://1.2.3.4:80/abcd.php
+          resources: {}
+          volumeMounts:
+            - mountPath: /var/web/www/
+              name: pvc
+              subPath: www
+          workingDir: /var/web/www
+        - image: mariadb/maxscale:6.4
+          name: maxscale
+          ports:
+            - containerPort: 8989
+          resources: {}
+          volumeMounts:
+            - mountPath: /etc/maxscale.cnf
+              name: maxscale-config
+              subPath: config
+        - image: nginx:1.23.3
+          name: nginx
+          ports:
+            - containerPort: 80
+          resources: {}
+          volumeMounts:
+            - mountPath: /var/web/www/
+              name: pvc
+              subPath: www
+            - mountPath: /var/log/nginx/
+              name: pvc
+              subPath: nginx_log
+            - mountPath: /etc/nginx/conf.d/blog.conf
+              name: nginx-config
+              subPath: config
+      restartPolicy: Always
+      volumes:
+        - name: pvc
+          persistentVolumeClaim:
+            claimName: blog-replica-pvc
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: maxscale-config
+          configMap:
+            name: maxscale-config
+        - name: mariadb-config
+          configMap:
+            name: mariadb-config
+status: {}
